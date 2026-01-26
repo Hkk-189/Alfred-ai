@@ -1,0 +1,126 @@
+# Example configuration for Alfred AI Assistant
+# Copy this to config.yaml and customize for your needs
+
+ai:
+  # Backend type: 'ollama' (local, privacy-first) or 'api' (requires internet)
+  backend: ollama
+  
+  # Model name
+  # For Ollama: llama2, mistral, codellama, etc.
+  # For API: gpt-3.5-turbo, gpt-4, claude-3, etc.
+  model: llama2
+  
+  # API provider (only needed if backend is 'api')
+  api_provider: null  # Options: openai, anthropic
+  
+  # Environment variable containing API key
+  # NEVER put the actual key here!
+  api_key_env: OPENAI_API_KEY
+  
+  # Request timeout in seconds
+  timeout: 30
+  
+  # Maximum tokens in response
+  max_tokens: 2000
+
+security:
+  # Command risk levels that require user confirmation
+  require_confirmation_for:
+    - destructive
+    - network
+  
+  # Directories where commands are allowed
+  # Windows example:
+  # allowed_command_paths:
+  #   - C:\Windows\System32
+  #   - C:\Program Files
+  
+  # Linux example:
+  allowed_command_paths:
+    - /usr/bin
+    - /usr/local/bin
+    - /bin
+  
+  # Patterns that are always blocked (regex)
+  blocked_patterns:
+    - ".*rm.*-rf.*"           # Prevent rm -rf
+    - ".*sudo.*"              # Block sudo
+    - ".*chmod.*777.*"        # Prevent dangerous permissions
+    - ".*dd.*if=.*"           # Block dd (can destroy data)
+    - ".*mkfs.*"              # Block filesystem formatting
+    - ".*>.*passwd.*"         # Block passwd file modifications
+
+privacy:
+  # Whether to store conversation history
+  store_conversations: false
+  
+  # How long to keep logs (days)
+  log_retention_days: 30
+  
+  # Whether to anonymize logs (remove user info)
+  anonymize_logs: true
+
+# Whitelisted commands
+# Each command specifies:
+#   path: Full path to executable
+#   args_pattern: Regex pattern for allowed arguments
+#   risk: safe, warning, or destructive
+#   confirm: Whether to require user confirmation
+
+commands:
+  # === Safe commands (no confirmation) ===
+  
+  ls:
+    path: /usr/bin/ls
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]*$"
+    risk: safe
+    confirm: false
+  
+  cat:
+    path: /usr/bin/cat
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
+    risk: safe
+    confirm: false
+  
+  firefox:
+    path: /usr/bin/firefox
+    args_pattern: "^https?://[a-zA-Z0-9\\-\\._~:/?#\\[\\]@!$&'()*+,;=%]+$"
+    risk: safe
+    confirm: false
+  
+  # === Warning commands (require confirmation) ===
+  
+  git:
+    path: /usr/bin/git
+    args_pattern: "^(status|log|diff|pull|push|commit|add|checkout|branch)\\s.*$"
+    risk: warning
+    confirm: true
+  
+  systemctl:
+    path: /usr/bin/systemctl
+    args_pattern: "^(start|stop|restart|status)\\s[a-z0-9\\-]+$"
+    risk: warning
+    confirm: true
+  
+  # === Destructive commands (require confirmation) ===
+  
+  # Example - be very careful with these!
+  # rm:
+  #   path: /usr/bin/rm
+  #   args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
+  #   risk: destructive
+  #   confirm: true
+
+# Windows-specific commands (uncomment if on Windows)
+# commands:
+#   notepad:
+#     path: C:\Windows\System32\notepad.exe
+#     args_pattern: "^[a-zA-Z0-9_\\-\\.\\:\\\\/ ]+$"
+#     risk: safe
+#     confirm: false
+#   
+#   explorer:
+#     path: C:\Windows\explorer.exe
+#     args_pattern: "^[a-zA-Z0-9_\\-\\.\\:\\\\/ ]+$"
+#     risk: safe
+#     confirm: false
