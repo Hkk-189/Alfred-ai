@@ -29,7 +29,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/alfred-ai.git
+git clone https://github.com/Hkk-189/Alfred-ai.git
 cd alfred-ai
 
 # Install dependencies
@@ -288,3 +288,4 @@ This is alpha software. Review all whitelisted commands carefully. The developer
 ---
 
 **Remember**: Alfred is a tool for enhancing human productivity, not replacing human judgment.
+
