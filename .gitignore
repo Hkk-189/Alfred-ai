@@ -37,6 +37,8 @@ ENV/
 config.yaml
 # Keep example config
 !config.example.yaml
+# Agent instructions (project-specific)
+AGENTS.md
 
 # API keys and secrets
 .env

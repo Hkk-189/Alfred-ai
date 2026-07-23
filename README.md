@@ -117,10 +117,15 @@ Alfred uses local AI (Ollama) by default - no internet required.
 
 ### Policy Enforcement
 
-- Path traversal prevention
+- Path traversal prevention (Unicode normalization + URL decoding)
 - Blocked patterns (e.g., `rm -rf`)
 - Argument length limits
 - Confirmation for risky operations
+- Rate limiting (10 requests per 60 seconds)
+- Concurrent process limits (3 max)
+- Config integrity verification (SHA-256 hash)
+- Dangerous executable blocking (python, bash, curl, etc.)
+- ReDoS protection for regex patterns
 
 ### Audit Logging
 
@@ -193,6 +198,10 @@ Critical security tests:
 - ✅ Path traversal prevention
 - ✅ Whitelist enforcement
 - ✅ No arbitrary code execution
+- ✅ Rate limiting
+- ✅ Input sanitization
+- ✅ Per-argument validation
+- ✅ ReDoS protection
 
 ## 🔧 Configuration
 
