@@ -53,24 +53,64 @@ class AuditLogger:
         )
         self.error_logger.addHandler(error_handler)
     
+    def _sanitize_for_logging(self, value: Any) -> Any:
+        """Sanitize value for safe logging (prevents log injection)"""
+        if isinstance(value, str):
+            sanitized = value.replace('\n', '\\n').replace('\r', '\\r')
+            sanitized = sanitized.replace('\x00', '').replace('\t', '\\t')
+            sanitized = ''.join(char for char in sanitized if ord(char) >= 32 or char in '\n\r\t')
+            if len(sanitized) > 1000:
+                sanitized = sanitized[:1000] + '...[truncated]'
+            return sanitized
+        elif isinstance(value, list):
+            return [self._sanitize_for_logging(item) for item in value]
+        elif isinstance(value, dict):
+            return {k: self._sanitize_for_logging(v) for k, v in value.items()}
+        else:
+            return self._safe_str(value)
+    
+    def _safe_str(self, value: Any) -> str:
+        """Safely convert value to string for logging"""
+        if isinstance(value, str):
+            return value[:1000]
+        elif isinstance(value, (int, float, bool, type(None))):
+            return str(value)
+        else:
+            return f"<{type(value).__name__}>"
+    
     def _sanitize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Remove sensitive information from log data"""
         if not self.anonymize:
-            return data
+            return self._validate_log_data(data)
         
-        # List of keys to redact
         sensitive_keys = ['api_key', 'password', 'token', 'secret', 'credential']
         
         sanitized = {}
         for key, value in data.items():
+            if not isinstance(key, str):
+                key = str(key)[:100]
+            
             if any(sensitive in key.lower() for sensitive in sensitive_keys):
                 sanitized[key] = '[REDACTED]'
             elif isinstance(value, dict):
                 sanitized[key] = self._sanitize_data(value)
+            elif isinstance(value, (list, tuple)):
+                sanitized[key] = [self._safe_str(item) for item in value]
             else:
-                sanitized[key] = value
+                sanitized[key] = self._safe_str(value)
         
         return sanitized
+    
+    def _validate_log_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and sanitize log data structure"""
+        validated = {}
+        for key, value in data.items():
+            if not isinstance(key, str):
+                key = str(key)[:100]
+            
+            validated[key] = self._sanitize_for_logging(value)
+        
+        return validated
     
     def log_command_execution(self, command: str, args: list, result: str, 
                              user: Optional[str] = None):

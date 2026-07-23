@@ -1,12 +1,40 @@
 """Command handler for validating and executing whitelisted system commands"""
 
 import subprocess
+import os
+import time
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
+from collections import defaultdict
+from threading import Lock
 
 from alfred.security.policy import SecurityPolicy, PolicyViolation
 from alfred.security.whitelist import CommandWhitelist
 from alfred.config.logging import AuditLogger
+
+
+class RateLimiter:
+    """Rate limiter for command execution"""
+    def __init__(self, max_requests: int = 10, time_window: int = 60):
+        self.max_requests = max_requests
+        self.time_window = time_window
+        self.requests = defaultdict(list)
+        self.lock = Lock()
+    
+    def is_allowed(self) -> bool:
+        with self.lock:
+            now = time.time()
+            self.requests['default'] = [
+                req_time for req_time in self.requests['default']
+                if now - req_time < self.time_window
+            ]
+            
+            if len(self.requests['default']) >= self.max_requests:
+                return False
+            
+            self.requests['default'].append(now)
+            return True
 
 
 @dataclass
@@ -41,6 +69,10 @@ class CommandHandler:
         self.audit_logger = audit_logger
         self.policy = SecurityPolicy(config)
         self.whitelist = CommandWhitelist(config)
+        self.rate_limiter = RateLimiter(max_requests=10, time_window=60)
+        self.active_processes = 0
+        self.max_concurrent = 3
+        self.process_lock = Lock()
     
     def execute(self, command_name: str, args: List[str], 
                 skip_confirmation: bool = False) -> CommandResult:
@@ -57,6 +89,38 @@ class CommandHandler:
             
         SECURITY NOTE: This method NEVER uses shell=True
         """
+        if not self.rate_limiter.is_allowed():
+            violation = PolicyViolation(
+                violation_type="RATE_LIMITED",
+                message="Rate limit exceeded. Please wait before running more commands.",
+                details={'command': command_name}
+            )
+            return CommandResult(
+                success=False,
+                output="",
+                error=violation.message,
+                return_code=-1,
+                violated_policy=violation
+            )
+        
+        with self.process_lock:
+            if self.active_processes >= self.max_concurrent:
+                return CommandResult(
+                    success=False,
+                    output="",
+                    error=f"Too many concurrent commands ({self.max_concurrent} max)",
+                    return_code=-1
+                )
+            self.active_processes += 1
+        
+        try:
+            return self._execute_internal(command_name, args, skip_confirmation)
+        finally:
+            with self.process_lock:
+                self.active_processes -= 1
+    
+    def _execute_internal(self, command_name: str, args: List[str], 
+                         skip_confirmation: bool = False) -> CommandResult:
         # Step 1: Check if command is whitelisted
         if not self.whitelist.is_whitelisted(command_name):
             violation = PolicyViolation(
@@ -83,12 +147,21 @@ class CommandHandler:
                 return_code=-1
             )
         
-        # Step 3: Validate executable exists
-        if not self.whitelist.get_executable_path(command_name):
+        # Step 3: Validate executable and resolve path atomically (fixes TOCTOU)
+        try:
+            exec_path = Path(spec.path).resolve(strict=True)
+        except FileNotFoundError:
             return CommandResult(
                 success=False,
                 output="",
                 error=f"Executable not found: {spec.path}",
+                return_code=-1
+            )
+        except Exception as e:
+            return CommandResult(
+                success=False,
+                output="",
+                error=f"Executable path error: {str(e)}",
                 return_code=-1
             )
         

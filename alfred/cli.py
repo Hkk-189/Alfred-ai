@@ -1,5 +1,6 @@
 """Main CLI interface for Alfred"""
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -8,6 +9,17 @@ from alfred.config.logging import AuditLogger
 from alfred.handlers.router import InputRouter, HandlerType
 from alfred.handlers.command_handler import CommandHandler
 from alfred.handlers.ai_handler import AIHandler
+
+
+ERROR_MESSAGES = {
+    "NOT_WHITELISTED": "Command not allowed",
+    "PATH_TRAVERSAL": "Invalid path specified",
+    "INVALID_ARGUMENTS": "Invalid command arguments",
+    "EXECUTABLE_NOT_FOUND": "Command not available",
+    "BLOCKED_PATTERN": "Command matches blocked pattern",
+    "RATE_LIMITED": "Too many requests. Please wait.",
+    "COMMAND_VIOLATION": "Command violates security policy",
+}
 
 
 class AlfredCLI:
@@ -78,7 +90,7 @@ class AlfredCLI:
             except KeyboardInterrupt:
                 print("\n\nInterrupted. Type 'exit' to quit.")
             except Exception as e:
-                print(f"\nError: {str(e)}")
+                print("\nAn error occurred. Check logs for details.")
                 self.audit_logger.log_error(
                     error_type="CLI_ERROR",
                     message=str(e),
@@ -99,14 +111,27 @@ class AlfredCLI:
     
     def _handle_command(self, command_input: str):
         """Handle system command execution"""
-        # Parse command and arguments
-        parts = command_input.split()
+        # Sanitize input: strip null bytes and normalize line endings
+        cleaned_input = command_input.replace('\x00', '').replace('\n', ' ').replace('\r', ' ')
+
+        try:
+            parts = shlex.split(cleaned_input)
+        except ValueError as e:
+            print(f"Invalid command syntax: {e}")
+            return
+
         if not parts:
             print("No command specified")
             return
-        
+
         command_name = parts[0]
         args = parts[1:] if len(parts) > 1 else []
+
+        # Reject any arg containing a null byte
+        for arg in args:
+            if '\x00' in arg:
+                print("Invalid argument: contains null byte")
+                return
         
         # Execute command through handler
         result = self.command_handler.execute(command_name, args)
@@ -114,16 +139,21 @@ class AlfredCLI:
         # Display result
         print()
         if result.status == "denied":
-            print(f"❌ Command denied: {result.error}")
             if result.violated_policy:
-                print(f"   Violation: {result.violated_policy.violation_type}")
+                safe_msg = ERROR_MESSAGES.get(
+                    result.violated_policy.violation_type,
+                    "Command cannot be executed"
+                )
+                print(f"Denied: {safe_msg}")
+            else:
+                print(f"Denied: {result.error}")
         elif result.status == "success":
-            print(f"✓ Command executed successfully")
+            print(f"Command executed successfully")
             if result.output:
                 print("\nOutput:")
                 print(result.output)
         else:
-            print(f"✗ Command failed (exit code: {result.return_code})")
+            print(f"Command failed (exit code: {result.return_code})")
             if result.error:
                 print(f"Error: {result.error}")
         print()

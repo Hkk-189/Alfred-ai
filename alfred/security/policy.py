@@ -2,9 +2,11 @@
 
 import re
 import os
+import unicodedata
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from urllib.parse import unquote
 
 
 @dataclass
@@ -77,16 +79,32 @@ class SecurityPolicy:
             PolicyViolation if path is invalid, None if valid
         """
         try:
-            # Resolve to absolute path to detect traversal attempts
-            resolved_path = Path(path).resolve()
+            # Normalize Unicode to prevent bypass via different dot representations
+            normalized_path = unicodedata.normalize('NFKC', path)
             
-            # Check for path traversal indicators
-            if '..' in str(path):
+            # URL decode to prevent bypass via percent encoding
+            decoded_path = unquote(normalized_path)
+            
+            # Check for null byte injection
+            if '\x00' in decoded_path:
                 return PolicyViolation(
-                    violation_type="PATH_TRAVERSAL",
-                    message="Path contains traversal sequence (..)",
+                    violation_type="NULL_BYTE_INJECTION",
+                    message="Path contains null byte",
                     details={'path': path}
                 )
+            
+            # Resolve to absolute path (handles .., ., symlinks)
+            resolved_path = Path(decoded_path).resolve()
+            
+            # Check for path traversal indicators in decoded path
+            traversal_patterns = ['..', '..\\', '../', '.\\']
+            for pattern in traversal_patterns:
+                if pattern in decoded_path:
+                    return PolicyViolation(
+                        violation_type="PATH_TRAVERSAL",
+                        message=f"Path contains traversal sequence ({pattern})",
+                        details={'path': path, 'decoded': decoded_path}
+                    )
             
             # If allowed directories specified, verify path is within them
             if allowed_dirs:
@@ -120,41 +138,84 @@ class SecurityPolicy:
     def validate_arguments(self, args: List[str], pattern: str) -> Optional[PolicyViolation]:
         """
         Validate command arguments against allowed pattern.
-        
-        Args:
-            args: List of arguments
-            pattern: Regex pattern that arguments must match
-            
-        Returns:
-            PolicyViolation if arguments don't match pattern, None if valid
+
+        Validates EACH argument individually to prevent bypass via argument splitting.
         """
         try:
+            # Check regex pattern safety first
+            safety_violation = self.validate_regex_pattern(pattern)
+            if safety_violation:
+                return safety_violation
+            
             arg_regex = re.compile(pattern)
-            args_string = ' '.join(args)
-            
-            if not arg_regex.match(args_string):
-                return PolicyViolation(
-                    violation_type="INVALID_ARGUMENTS",
-                    message="Arguments don't match allowed pattern",
-                    details={'args': args, 'pattern': pattern}
-                )
-            
-            # Additional length check to prevent excessively long arguments
-            if len(args_string) > 4096:
+
+            for i, arg in enumerate(args):
+                if not arg_regex.match(arg):
+                    return PolicyViolation(
+                        violation_type="INVALID_ARGUMENTS",
+                        message=f"Argument {i} doesn't match allowed pattern",
+                        details={'arg_index': i, 'arg': arg, 'pattern': pattern}
+                    )
+
+                if len(arg) > 1024:
+                    return PolicyViolation(
+                        violation_type="ARGUMENT_TOO_LONG",
+                        message=f"Argument {i} exceeds maximum length (1024)",
+                        details={'arg_index': i, 'arg': arg[:50], 'length': len(arg)}
+                    )
+
+            total_length = sum(len(arg) for arg in args)
+            if total_length > 4096:
                 return PolicyViolation(
                     violation_type="ARGUMENTS_TOO_LONG",
-                    message="Arguments exceed maximum length",
-                    details={'length': len(args_string), 'max': 4096}
+                    message="Total arguments exceed maximum length (4096)",
+                    details={'length': total_length, 'max': 4096}
                 )
-            
+
             return None
-            
+
+        except re.error as e:
+            return PolicyViolation(
+                violation_type="ARGUMENT_VALIDATION_ERROR",
+                message=f"Invalid regex pattern: {str(e)}",
+                details={'pattern': pattern}
+            )
         except Exception as e:
             return PolicyViolation(
                 violation_type="ARGUMENT_VALIDATION_ERROR",
                 message=f"Error validating arguments: {str(e)}",
                 details={'args': args}
             )
+    
+    def _is_safe_regex(self, pattern: str) -> bool:
+        """Check if regex pattern is safe from ReDoS (catastrophic backtracking)"""
+        dangerous_strings = [
+            '(*)++',
+            '(*)*+',
+            '(*)+*',
+            '(*)**',
+            '([^)]++)',
+            '([^)]**)',
+        ]
+        
+        for danger in dangerous_strings:
+            if danger in pattern:
+                return False
+        
+        if pattern.count('|') > 10:
+            return False
+        
+        return True
+    
+    def validate_regex_pattern(self, pattern: str) -> Optional[PolicyViolation]:
+        """Validate a regex pattern for safety"""
+        if not self._is_safe_regex(pattern):
+            return PolicyViolation(
+                violation_type="UNSAFE_REGEX_PATTERN",
+                message="Argument pattern may cause ReDoS (catastrophic backtracking)",
+                details={'pattern': pattern}
+            )
+        return None
     
     def requires_confirmation(self, risk_level: str) -> bool:
         """Check if a command with given risk level requires confirmation"""

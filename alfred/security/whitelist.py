@@ -6,6 +6,19 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 
+DANGEROUS_EXECUTABLES = {
+    "python", "python2", "python3", "python3.8", "python3.9", "python3.10", "python3.11", "python3.12",
+    "bash", "sh", "dash", "zsh", "fish",
+    "perl", "ruby", "php", "lua", "tcl",
+    "node",
+    "vim", "nano", "emacs", "subl",
+    "curl", "wget", "nc", "netcat", "socat",
+    "docker", "podman", "kubectl",
+    "sudo", "su", "doas",
+    "eval", "exec",
+}
+
+
 @dataclass
 class CommandSpec:
     """Specification for a whitelisted command"""
@@ -24,20 +37,60 @@ class CommandWhitelist:
         self.commands = self._load_commands()
     
     def _load_commands(self) -> Dict[str, CommandSpec]:
-        """Load whitelisted commands from config"""
+        """Load whitelisted commands from config with path validation"""
         commands = {}
         command_config = self.config.get('commands', {})
+        allowed_paths = self.config.get('security', {}).get('allowed_command_paths', [])
         
         for name, spec in command_config.items():
+            cmd_path = spec.get('path', '')
+            
+            if not cmd_path:
+                continue
+            
+            exe_name = os.path.basename(cmd_path).lower()
+            if exe_name in DANGEROUS_EXECUTABLES:
+                print(f"WARNING: Skipping command '{name}' - dangerous executable blocked: {exe_name}")
+                continue
+            
+            if allowed_paths and not self._is_path_allowed(cmd_path, allowed_paths):
+                print(f"WARNING: Skipping command '{name}' - path not in allowed directories: {cmd_path}")
+                continue
+            
+            if not os.path.isfile(cmd_path):
+                print(f"WARNING: Skipping command '{name}' - file not found: {cmd_path}")
+                continue
+            
+            if not os.access(cmd_path, os.X_OK):
+                print(f"WARNING: Skipping command '{name}' - file not executable: {cmd_path}")
+                continue
+            
             commands[name] = CommandSpec(
                 name=name,
-                path=spec.get('path', ''),
+                path=cmd_path,
                 args_pattern=spec.get('args_pattern', '.*'),
                 risk=spec.get('risk', 'warning'),
                 confirm=spec.get('confirm', True)
             )
         
         return commands
+    
+    def _is_path_allowed(self, cmd_path: str, allowed_paths: List[str]) -> bool:
+        """Check if command path is within allowed directories"""
+        try:
+            cmd_resolved = Path(cmd_path).resolve()
+            
+            for allowed in allowed_paths:
+                allowed_resolved = Path(allowed).resolve()
+                try:
+                    cmd_resolved.relative_to(allowed_resolved)
+                    return True
+                except ValueError:
+                    continue
+            
+            return False
+        except Exception:
+            return False
     
     def is_whitelisted(self, command_name: str) -> bool:
         """Check if a command is whitelisted"""

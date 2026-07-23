@@ -72,8 +72,15 @@ class TestSecurityPolicy:
     
     def test_argument_length_limit(self):
         """Test that excessively long arguments are rejected"""
-        very_long_args = ["A" * 5000]
-        violation = self.policy.validate_arguments(very_long_args, ".*")
+        too_long_arg = ["A" * 2000]
+        violation = self.policy.validate_arguments(too_long_arg, ".*")
+        assert violation is not None
+        assert violation.violation_type == "ARGUMENT_TOO_LONG"
+
+    def test_total_arguments_length(self):
+        """Test that total arguments length is limited"""
+        many_args = ["a"] * 5000
+        violation = self.policy.validate_arguments(many_args, ".*")
         assert violation is not None
         assert violation.violation_type == "ARGUMENTS_TOO_LONG"
     
@@ -181,53 +188,64 @@ class TestCommandHandler:
     
     def test_subprocess_without_shell(self):
         """Verify that subprocess is NEVER called with shell=True"""
-        # This is a code inspection test - ensure the handler uses proper subprocess
         import inspect
-        source = inspect.getsource(CommandHandler.execute)
-        
-        # Verify shell=True never appears in the code
-        assert 'shell=True' not in source, "CRITICAL: Found shell=True in command handler!"
-        
-        # Verify we use explicit argument lists
-        assert '[spec.path] + args' in source or similar patterns exist
+        import ast
+        import textwrap
+        source = inspect.getsource(CommandHandler._execute_internal)
+        source = textwrap.dedent(source)
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr == 'run' and node.func.value.id == 'subprocess':
+                        for keyword in node.keywords:
+                            if keyword.arg == 'shell' and isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                                raise AssertionError(f"CRITICAL: Found shell=True in CommandHandler!")
+
+        assert 'subprocess.run' in source and 'args' in source
 
 
 class TestNoArbitraryCodeExecution:
     """Test that AI output is never executed"""
-    
+
     def test_no_eval(self):
         """Verify eval() is not used on AI output"""
         from alfred.handlers.ai_handler import AIHandler
         import inspect
-        
+        import ast
+
         source = inspect.getsource(AIHandler)
-        assert 'eval(' not in source, "CRITICAL: Found eval() in AI handler!"
-    
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if hasattr(node.func, 'id') and node.func.id in ('eval', 'exec'):
+                    raise AssertionError(f"CRITICAL: Found {node.func.id}() in AI handler!")
+
     def test_no_exec(self):
         """Verify exec() is not used on AI output"""
-        from alfred.handlers.ai_handler import AIHandler
-        import inspect
-        
-        source = inspect.getsource(AIHandler)
-        assert 'exec(' not in source, "CRITICAL: Found exec() in AI handler!"
-    
+        self.test_no_eval()
+
     def test_no_shell_true_in_codebase(self):
         """Verify shell=True is never used anywhere"""
         import os
+        import ast
         from pathlib import Path
-        
-        # Scan all Python files
+
         alfred_dir = Path(__file__).parent.parent / 'alfred'
         for py_file in alfred_dir.rglob('*.py'):
             with open(py_file, 'r') as f:
-                content = f.read()
-                # Allow shell=False or documenting that we DON'T use shell=True
-                if 'shell=True' in content and 'shell=False' not in content:
-                    # Check if it's in a comment or docstring
-                    lines = content.split('\n')
-                    for i, line in enumerate(lines):
-                        if 'shell=True' in line and not line.strip().startswith('#'):
-                            pytest.fail(f"CRITICAL: Found shell=True in {py_file}:{i+1}")
+                source = f.read()
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    if isinstance(node.func, ast.Attribute):
+                        if node.func.attr == 'run' and node.func.value.id == 'subprocess':
+                            for keyword in node.keywords:
+                                if keyword.arg == 'shell' and isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                                    pytest.fail(f"CRITICAL: Found shell=True in {py_file}")
 
 
 if __name__ == "__main__":

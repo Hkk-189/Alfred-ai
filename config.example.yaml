@@ -1,21 +1,15 @@
 # Example configuration for Alfred AI Assistant
-# Copy this to config.yaml and customize for your needs
+# Copy this to ~/.config/alfred/config.yaml and customize
 
 ai:
-  # Backend type: 'ollama' (local, privacy-first) or 'api' (requires internet)
+  # Backend type: 'ollama' (local) or 'ollama_cloud' (API)
   backend: ollama
   
-  # Model name
-  # For Ollama: llama2, mistral, codellama, etc.
-  # For API: gpt-3.5-turbo, gpt-4, claude-3, etc.
+  # Model name (llama2, mistral, codellama, etc.)
   model: llama2
   
-  # API provider (only needed if backend is 'api')
-  api_provider: null  # Options: openai, anthropic
-  
-  # Environment variable containing API key
-  # NEVER put the actual key here!
-  api_key_env: OPENAI_API_KEY
+  # Environment variable containing API key (only for ollama_cloud)
+  api_key_env: OLLAMA_CLOUD_API_KEY
   
   # Request timeout in seconds
   timeout: 30
@@ -76,8 +70,56 @@ commands:
     risk: safe
     confirm: false
   
+  pwd:
+    path: /usr/bin/pwd
+    args_pattern: "^[a-zA-Z0-9_\\-]*$"
+    risk: safe
+    confirm: false
+  
+  whoami:
+    path: /usr/bin/whoami
+    args_pattern: "^$"
+    risk: safe
+    confirm: false
+  
+  date:
+    path: /usr/bin/date
+    args_pattern: "^[a-zA-Z0-9_\\-%+: ]*$"
+    risk: safe
+    confirm: false
+  
+  uname:
+    path: /usr/bin/uname
+    args_pattern: "^-[a-zrsvmpio]+$"
+    risk: safe
+    confirm: false
+  
+  which:
+    path: /usr/bin/which
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
+    risk: safe
+    confirm: false
+  
+  echo:
+    path: /usr/bin/echo
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ !?%@]+$"
+    risk: safe
+    confirm: false
+  
   cat:
     path: /usr/bin/cat
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
+    risk: safe
+    confirm: false
+  
+  mkdir:
+    path: /usr/bin/mkdir
+    args_pattern: "^-[pvm]+$"
+    risk: safe
+    confirm: false
+  
+  touch:
+    path: /usr/bin/touch
     args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
     risk: safe
     confirm: false
@@ -88,28 +130,95 @@ commands:
     risk: safe
     confirm: false
   
+  chromium:
+    path: /usr/bin/chromium
+    args_pattern: "^https?://[a-zA-Z0-9\\-\\._~:/?#\\[\\]@!$&'()*+,;=%]+$"
+    risk: safe
+    confirm: false
+  
+  code:
+    path: /usr/bin/code
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]*$"
+    risk: safe
+    confirm: false
+  
   # === Warning commands (require confirmation) ===
   
   git:
     path: /usr/bin/git
-    args_pattern: "^(status|log|diff|pull|push|commit|add|checkout|branch)\\s.*$"
+    args_pattern: "^(status|log|diff|pull|push|commit|add|checkout|branch|fetch|clone|init)\\s.*$"
     risk: warning
     confirm: true
   
   systemctl:
     path: /usr/bin/systemctl
-    args_pattern: "^(start|stop|restart|status)\\s[a-z0-9\\-]+$"
+    args_pattern: "^(start|stop|restart|status|enable|disable|reload)\\s[a-z0-9\\-.]+$"
+    risk: warning
+    confirm: true
+  
+  apt:
+    path: /usr/bin/apt
+    args_pattern: "^(update|upgrade|search|show|list|install)\\s[a-z0-9_\\-\\.]+$"
+    risk: warning
+    confirm: true
+  
+  pip:
+    path: /usr/bin/pip
+    args_pattern: "^(list|show|search|install|uninstall|freeze)\\s?[a-zA-Z0-9_\\-\\.]*$"
+    risk: warning
+    confirm: true
+  
+  npm:
+    path: /usr/bin/npm
+    args_pattern: "^(list|search|view|install|uninstall|outdated)\\s?[a-zA-Z0-9_\\-\\.]*$"
+    risk: warning
+    confirm: true
+  
+  cargo:
+    path: /usr/bin/cargo
+    args_pattern: "^(build|run|test|check|doc|search|binary)\\s?[a-zA-Z0-9_\\-\\.]*$"
+    risk: warning
+    confirm: true
+  
+  find:
+    path: /usr/bin/find
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
+    risk: warning
+    confirm: true
+  
+  grep:
+    path: /usr/bin/grep
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
     risk: warning
     confirm: true
   
   # === Destructive commands (require confirmation) ===
   
-  # Example - be very careful with these!
-  # rm:
-  #   path: /usr/bin/rm
-  #   args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
-  #   risk: destructive
-  #   confirm: true
+  rm:
+    path: /usr/bin/rm
+    args_pattern: "^-[rfiI]+$"
+    risk: destructive
+    confirm: true
+  
+  rmdir:
+    path: /usr/bin/rmdir
+    args_pattern: "^[a-zA-Z0-9_\\-\\./~ ]+$"
+    risk: destructive
+    confirm: true
+  
+  cp:
+    path: /usr/bin/cp
+    args_pattern: "^-[irp]+$"
+    risk: destructive
+    confirm: true
+  
+  mv:
+    path: /usr/bin/mv
+    args_pattern: "^-[fiIu]+$"
+    risk: destructive
+    confirm: true
+  
+  # shutdown and reboot are blocked - too dangerous for whitelisting
 
 # Windows-specific commands (uncomment if on Windows)
 # commands:

@@ -1,6 +1,8 @@
 """Input router for classifying user intent and routing to appropriate handler"""
 
 import re
+import time
+import random
 from enum import Enum
 from typing import Tuple, Optional
 
@@ -46,21 +48,29 @@ class InputRouter:
         Security note: This function ONLY classifies intent.
         It does NOT execute anything.
         """
+        start_time = time.time()
+        
         if not user_input or not user_input.strip():
-            return HandlerType.UNKNOWN, ""
+            handler_type = HandlerType.UNKNOWN
+            cleaned_input = ""
+        else:
+            cleaned_input = user_input.strip()
+            
+            if self._matches_command_pattern(cleaned_input):
+                handler_type = HandlerType.COMMAND
+                cleaned_input = self._clean_command_input(cleaned_input)
+            elif self._matches_ai_pattern(cleaned_input):
+                handler_type = HandlerType.AI
+            else:
+                handler_type = HandlerType.AI
         
-        cleaned_input = user_input.strip()
+        elapsed = time.time() - start_time
+        target_time = 0.01
+        if elapsed < target_time:
+            sleep_time = target_time - elapsed + random.uniform(-0.002, 0.002)
+            time.sleep(max(0, sleep_time))
         
-        # Check for explicit command indicators
-        if self._matches_command_pattern(cleaned_input):
-            return HandlerType.COMMAND, self._clean_command_input(cleaned_input)
-        
-        # Check for explicit AI query indicators
-        if self._matches_ai_pattern(cleaned_input):
-            return HandlerType.AI, cleaned_input
-        
-        # Default to AI for ambiguous input (fail-safe approach)
-        return HandlerType.AI, cleaned_input
+        return handler_type, cleaned_input
     
     def _matches_command_pattern(self, input_str: str) -> bool:
         """Check if input matches command patterns"""
