@@ -165,6 +165,17 @@ class CommandHandler:
                 return_code=-1
             )
         
+        # Resolve the target before use and ensure the resolved executable still
+        # lives under a configured allowed directory.
+        allowed_paths = self.config.get('security', {}).get('allowed_command_paths', [])
+        if not self.whitelist._is_path_allowed(str(exec_path), allowed_paths):
+            return CommandResult(
+                success=False,
+                output="",
+                error="Executable path is outside allowed directories",
+                return_code=-1
+            )
+
         # Step 4: Validate arguments against policy
         arg_violation = self.policy.validate_arguments(args, spec.args_pattern)
         if arg_violation:
@@ -190,7 +201,7 @@ class CommandHandler:
             )
         
         # Step 6: Check if confirmation is required
-        if spec.confirm and not skip_confirmation:
+        if (spec.confirm or self.policy.requires_confirmation(spec.risk)) and not skip_confirmation:
             if not self._confirm_execution(command_name, args, spec.risk):
                 return CommandResult(
                     success=False,
@@ -202,7 +213,7 @@ class CommandHandler:
         # Step 7: Execute command safely (NO shell=True)
         try:
             result = subprocess.run(
-                [spec.path] + args,  # Explicit argument list
+                [str(exec_path)] + args,  # Explicit argument list
                 capture_output=True,
                 timeout=30,
                 check=False,

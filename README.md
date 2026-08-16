@@ -39,6 +39,21 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### Windows (PowerShell)
+
+```powershell
+# Creates .venv and installs runtime dependencies without administrator access
+.\scripts\setup-windows.ps1
+
+# Start Alfred
+.\scripts\run-windows.ps1
+```
+
+To install test dependencies too, use `.\scripts\setup-windows.ps1 -Dev`.
+Existing Windows configurations created by older versions are migrated on first
+run. Alfred creates a timestamped backup before removing the legacy `cmd.exe`
+entry or adding `C:\Windows` for `explorer.exe`.
+
 ### First Run
 
 On first run, Alfred creates its configuration:

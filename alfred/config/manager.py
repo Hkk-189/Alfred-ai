@@ -4,6 +4,7 @@ import os
 import platform
 import re
 import hashlib
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import yaml
@@ -37,11 +38,6 @@ CONFIG_SCHEMA = {
 
 RISK_LEVELS = ["safe", "warning", "destructive"]
 
-ALLOWED_EXECUTABLE_PREFIXES = {
-    "/usr/bin/", "/usr/local/bin/", "/bin/", "/snap/bin/",
-    "/opt/", "/sbin/", "/usr/sbin/"
-}
-
 DANGEROUS_EXECUTABLES = {
     "python", "python2", "python3", "python3.8", "python3.9", "python3.10", "python3.11", "python3.12",
     "bash", "sh", "dash", "zsh", "fish",
@@ -53,7 +49,7 @@ DANGEROUS_EXECUTABLES = {
     "sudo", "su", "doas",
     "chmod", "chown", "chgrp",
     "dd", "mkfs", "fdisk", "parted",
-    "shutdown", "reboot", "halt", "poweroff",
+    "shutdown", "reboot", "halt", "poweroff", "cmd", "cmd.exe",
     "kill", "killall", "pkill",
     "eval", "exec",
 }
@@ -146,7 +142,7 @@ class ConfigManager:
             return hashlib.sha256(f.read()).hexdigest()
     
     def _verify_config_integrity(self, config_file: Path) -> bool:
-        """Verify config file hasn't been modified since last load"""
+        """Report whether the config matches the previously recorded hash."""
         hash_file = self.config_dir / ".config.hash"
         
         if not hash_file.exists():
@@ -166,6 +162,12 @@ class ConfigManager:
             return False
         
         return True
+
+    def _record_config_hash(self, config_file: Path) -> None:
+        """Record the hash of a config that has passed validation."""
+        hash_file = self.config_dir / ".config.hash"
+        with open(hash_file, 'w') as f:
+            f.write(self._compute_config_hash(config_file))
     
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file or create default"""
@@ -173,11 +175,11 @@ class ConfigManager:
 
         if config_file.exists():
             try:
+                self._migrate_legacy_windows_config(config_file)
                 if not self._verify_config_integrity(config_file):
-                    print("Using last known good config.")
-                    return self._get_default_config()
-                
+                    print("WARNING: Configuration file has changed; validating updated configuration.")
                 config = self._validate_and_load(config_file)
+                self._record_config_hash(config_file)
                 return config if config else self._get_default_config()
             except ConfigValidationError as e:
                 print(f"Config validation failed: {e}")
@@ -190,6 +192,61 @@ class ConfigManager:
             config = self._get_default_config()
             self.save_config(config)
             return config
+
+    def _migrate_legacy_windows_config(self, config_file: Path) -> None:
+        """Migrate only the unsafe Windows defaults created by older releases."""
+        if self.platform != "Windows":
+            return
+
+        try:
+            with open(config_file, 'r') as f:
+                config = yaml.safe_load(f)
+        except (OSError, yaml.YAMLError):
+            return
+
+        if not isinstance(config, dict):
+            return
+
+        commands = config.get('commands')
+        security = config.get('security')
+        if not isinstance(commands, dict) or not isinstance(security, dict):
+            return
+
+        changed = False
+        cmd_spec = commands.get('cmd')
+        if isinstance(cmd_spec, dict) and self._same_windows_path(
+            cmd_spec.get('path'), r'C:\Windows\System32\cmd.exe'
+        ):
+            del commands['cmd']
+            changed = True
+
+        explorer_spec = commands.get('explorer')
+        allowed_paths = security.get('allowed_command_paths')
+        if (
+            isinstance(explorer_spec, dict)
+            and self._same_windows_path(explorer_spec.get('path'), r'C:\Windows\explorer.exe')
+            and isinstance(allowed_paths, list)
+            and not any(self._same_windows_path(path, r'C:\Windows') for path in allowed_paths)
+        ):
+            allowed_paths.append(r'C:\Windows')
+            changed = True
+
+        if not changed:
+            return
+
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        backup_file = config_file.with_name(f'{config_file.name}.bak-{timestamp}')
+        with open(config_file, 'rb') as source, open(backup_file, 'wb') as backup:
+            backup.write(source.read())
+        with open(config_file, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        self._record_config_hash(config_file)
+        print(f'Updated legacy Windows configuration. Backup saved to: {backup_file}')
+
+    @staticmethod
+    def _same_windows_path(left: Any, right: str) -> bool:
+        """Compare Windows paths without requiring the paths to exist."""
+        return isinstance(left, str) and os.path.normcase(os.path.normpath(left)) == os.path.normcase(os.path.normpath(right))
     
     def _get_default_config(self) -> Dict[str, Any]:
         """Get default configuration"""
@@ -225,6 +282,7 @@ class ConfigManager:
         if self.platform == "Windows":
             return [
                 "C:\\Windows\\System32",
+                "C:\\Windows",
                 "C:\\Program Files",
                 "C:\\Program Files (x86)"
             ]
@@ -251,12 +309,6 @@ class ConfigManager:
                     "risk": "safe",
                     "confirm": False
                 },
-                "cmd": {
-                    "path": "C:\\Windows\\System32\\cmd.exe",
-                    "args_pattern": "^[a-zA-Z0-9_\\-\\.\\:\\\\/ ]*$",
-                    "risk": "warning",
-                    "confirm": True
-                }
             }
         else:  # Linux
             return {
@@ -362,6 +414,8 @@ class ConfigManager:
         try:
             with open(config_file, 'w') as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+            self._record_config_hash(config_file)
             
             # Set restrictive permissions on config file
             if self.platform != "Windows":
@@ -464,10 +518,29 @@ class ConfigManager:
                     exe_name = os.path.basename(path).lower()
                     if exe_name in DANGEROUS_EXECUTABLES:
                         errors.append(f"Command '{cmd_name}' uses dangerous executable: {exe_name}")
-                    if not any(path.startswith(prefix) for prefix in ALLOWED_EXECUTABLE_PREFIXES):
-                        errors.append(f"Command '{cmd_name}' path not in allowed prefixes: {path}")
+                    allowed_paths = config.get("security", {}).get("allowed_command_paths", [])
+                    if not self._is_path_within_allowed_directories(path, allowed_paths):
+                        errors.append(f"Command '{cmd_name}' path not in allowed command paths: {path}")
 
         return errors
+
+    @staticmethod
+    def _is_path_within_allowed_directories(path: str, allowed_paths: List[str]) -> bool:
+        """Check that an executable is inside one of the configured directories."""
+        if not allowed_paths:
+            return False
+
+        try:
+            candidate = Path(path).resolve()
+            for allowed in allowed_paths:
+                try:
+                    candidate.relative_to(Path(allowed).resolve())
+                    return True
+                except ValueError:
+                    continue
+            return False
+        except (OSError, ValueError):
+            return False
 
     def _validate_and_load(self, config_file: Path) -> Dict[str, Any]:
         """Load config with validation"""

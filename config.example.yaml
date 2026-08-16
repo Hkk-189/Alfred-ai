@@ -27,6 +27,7 @@ security:
   # Windows example:
   # allowed_command_paths:
   #   - C:\Windows\System32
+  #   - C:\Windows
   #   - C:\Program Files
   
   # Linux example:

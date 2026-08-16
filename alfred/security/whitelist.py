@@ -15,6 +15,7 @@ DANGEROUS_EXECUTABLES = {
     "curl", "wget", "nc", "netcat", "socat",
     "docker", "podman", "kubectl",
     "sudo", "su", "doas",
+    "cmd", "cmd.exe",
     "eval", "exec",
 }
 

@@ -2,6 +2,7 @@
 
 import pytest
 import subprocess
+import os
 from pathlib import Path
 
 from alfred.security.policy import SecurityPolicy, PolicyViolation
@@ -96,16 +97,23 @@ class TestCommandWhitelist:
     
     def setup_method(self):
         """Setup test whitelist"""
+        if os.name == 'nt':
+            safe_path = os.path.join(os.environ['SystemRoot'], 'System32', 'where.exe')
+            destructive_path = os.path.join(os.environ['SystemRoot'], 'System32', 'notepad.exe')
+        else:
+            safe_path = '/usr/bin/ls'
+            destructive_path = '/usr/bin/rm'
+
         self.config = {
             'commands': {
                 'safe_command': {
-                    'path': '/usr/bin/ls',
+                    'path': safe_path,
                     'args_pattern': '^[a-z0-9\\-/ ]*$',
                     'risk': 'safe',
                     'confirm': False
                 },
                 'dangerous_command': {
-                    'path': '/usr/bin/rm',
+                    'path': destructive_path,
                     'args_pattern': '^[a-z0-9\\-/ ]+$',
                     'risk': 'destructive',
                     'confirm': True

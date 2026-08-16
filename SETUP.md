@@ -8,6 +8,28 @@
 
 ## Installation Steps
 
+### Windows quick setup (PowerShell)
+
+From the project root, run:
+
+```powershell
+.\scripts\setup-windows.ps1
+.\scripts\run-windows.ps1
+```
+
+The setup script creates a project-local `.venv`, bootstraps pip when Python
+includes `ensurepip`, and installs runtime dependencies. It does not require
+administrator access and is safe to re-run. For the test suite, use:
+
+```powershell
+.\scripts\setup-windows.ps1 -Dev
+.\.venv\Scripts\python.exe -m pytest tests -v
+```
+
+On the first launch, older Windows default configurations are backed up and
+migrated automatically. Custom commands are preserved; only the old default
+`cmd.exe` entry is removed.
+
 ### 1. Install Dependencies
 
 ```bash

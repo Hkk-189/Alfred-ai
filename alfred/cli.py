@@ -62,6 +62,7 @@ class AlfredCLI:
     
     def run(self):
         """Main interaction loop"""
+        user_input = ""
         while True:
             try:
                 # Get user input
@@ -229,10 +230,10 @@ class AlfredCLI:
                 spec = self.command_handler.whitelist.get_command_spec(cmd_name)
                 if spec:
                     risk_indicator = {
-                        'safe': '✓',
-                        'warning': '⚠',
-                        'destructive': '⚠⚠'
-                    }.get(spec.risk, '?')
+                        'safe': '[safe]',
+                        'warning': '[warning]',
+                        'destructive': '[destructive]'
+                    }.get(spec.risk, '[unknown]')
                     
                     print(f"  {risk_indicator} {cmd_name}")
                     print(f"      Path: {spec.path}")
