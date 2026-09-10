@@ -310,7 +310,7 @@ class ConfigManager:
                 },
                 "mkdir": {
                     "path": "/usr/bin/mkdir",
-                    "args_pattern": "^-[pvm]+$",
+                    "args_pattern": "^-[pvm]+$|^[a-zA-Z0-9_\\-\\./~ ]+$",
                     "risk": "safe",
                     "confirm": False
                 },
